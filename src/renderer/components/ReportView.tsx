@@ -6,6 +6,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
 import type { AnalysisReport, ChatMessage, CapturedRequest, JsHookRecord } from '@shared/types'
+import { AiLogView } from './AiLogView'
 import styles from './ReportView.module.css'
 
 interface ReportViewProps {
@@ -124,6 +125,7 @@ const ReportView: React.FC<ReportViewProps> = ({
 }) => {
   const { t } = useLocale()
   const [chatInput, setChatInput] = useState('')
+  const [showAiLog, setShowAiLog] = useState(false)
   const reportBodyRef = useRef<HTMLDivElement>(null)
 
   // Auto-scroll report body when streaming
@@ -285,6 +287,17 @@ const ReportView: React.FC<ReportViewProps> = ({
     )
   }
 
+  // Has report — show AI Log view if toggled
+  if (showAiLog) {
+    return (
+      <AiLogView
+        sessionId={report.session_id}
+        sessionName={sessionName}
+        onBack={() => setShowAiLog(false)}
+      />
+    )
+  }
+
   // Has report — full layout with toolbar + content + chat + context panel
   return (
     <div className={styles.reportContainer}>
@@ -296,6 +309,7 @@ const ReportView: React.FC<ReportViewProps> = ({
           <div className={styles.toolSpacer} />
           <button className={styles.toolBtn} onClick={handleExport}>⬇ {t('report.export')}</button>
           <button className={styles.toolBtn} onClick={() => onReAnalyze()}>↻ {t('report.reanalyze')}</button>
+          <button className={styles.toolBtn} onClick={() => setShowAiLog(true)}>📋 {t('aiLog.title')}</button>
         </div>
 
         {/* Report content */}

@@ -380,6 +380,7 @@ export class AiRequestLogRepo {
     findAll: Database.Statement;
     findById: Database.Statement;
     deleteBySession: Database.Statement;
+    updateTokens: Database.Statement;
   };
 
   constructor(private db: Database.Database) {
@@ -410,6 +411,10 @@ export class AiRequestLogRepo {
       deleteBySession: db.prepare(
         'DELETE FROM ai_request_logs WHERE session_id = ?'
       ),
+      updateTokens: db.prepare(
+        `UPDATE ai_request_logs SET prompt_tokens = ?, completion_tokens = ?
+         WHERE id = (SELECT MAX(id) FROM ai_request_logs WHERE session_id = ? AND type = ?)`
+      ),
     };
   }
 
@@ -431,5 +436,9 @@ export class AiRequestLogRepo {
 
   deleteBySession(sessionId: string): void {
     this.stmts.deleteBySession.run(sessionId);
+  }
+
+  updateLatestTokens(sessionId: string, type: string, promptTokens: number, completionTokens: number): void {
+    this.stmts.updateTokens.run(promptTokens, completionTokens, sessionId, type);
   }
 }

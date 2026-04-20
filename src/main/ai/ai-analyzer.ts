@@ -166,6 +166,7 @@ export class AiAnalyzer {
           const phase1Result = await phase1Router.complete(phase1Messages, undefined, signal);
           filterPromptTokens = phase1Result.promptTokens;
           filterCompletionTokens = phase1Result.completionTokens;
+          this.aiRequestLogRepo.updateLatestTokens(sessionId, 'filter', phase1Result.promptTokens, phase1Result.completionTokens);
 
           const validSeqs = new Set(fullData.requests.map(r => r.seq));
           const filteredSeqs = this.parseFilterResponse(phase1Result.content, validSeqs);
@@ -249,6 +250,7 @@ export class AiAnalyzer {
         content = result.content;
         promptTokens = result.promptTokens;
         completionTokens = result.completionTokens;
+        this.aiRequestLogRepo.updateLatestTokens(sessionId, 'analyze', result.promptTokens, result.completionTokens);
         break;
       } catch (err) {
         // Don't retry if cancelled
@@ -374,10 +376,12 @@ export class AiAnalyzer {
 
     if (allTools.length > 0) {
       const result = await router.completeWithTools(messages, allTools, callTool, onProgress, 5);
+      this.aiRequestLogRepo.updateLatestTokens(sessionId, 'chat', result.promptTokens, result.completionTokens);
       return result.content;
     }
 
     const result = await router.complete(messages, onProgress)
+    this.aiRequestLogRepo.updateLatestTokens(sessionId, 'chat', result.promptTokens, result.completionTokens);
     return result.content
   }
 }

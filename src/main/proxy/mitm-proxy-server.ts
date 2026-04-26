@@ -4,6 +4,11 @@ import * as https from "https";
 import * as net from "net";
 import * as tls from "tls";
 import * as url from "url";
+import {
+  brotliDecompressSync,
+  gunzipSync,
+  inflateSync,
+} from "zlib";
 import { v4 as uuidv4 } from "uuid";
 import { SocksClient } from "socks";
 import type { CaManager } from "./ca-manager";
@@ -20,6 +25,43 @@ const BINARY_CONTENT_TYPES = [
   "application/zip",
 ];
 const STATIC_EXTENSIONS = /\.(js|css|png|jpg|jpeg|gif|ico|svg|woff2?|ttf|eot|map)$/i;
+
+function headerToString(value: string | string[] | undefined): string {
+  return Array.isArray(value) ? value.join(",") : value || "";
+}
+
+function decodeCapturedBody(
+  body: Buffer,
+  contentEncoding: string | string[] | undefined,
+): Buffer {
+  const encodings = headerToString(contentEncoding)
+    .toLowerCase()
+    .split(",")
+    .map((encoding) => encoding.trim())
+    .filter(Boolean);
+
+  return encodings.reduceRight((decoded, encoding) => {
+    if (encoding === "br") return brotliDecompressSync(decoded);
+    if (encoding === "gzip" || encoding === "x-gzip") {
+      return gunzipSync(decoded);
+    }
+    if (encoding === "deflate") return inflateSync(decoded);
+    return decoded;
+  }, body);
+}
+
+function bodyToUtf8(
+  body: Buffer,
+  contentEncoding: string | string[] | undefined,
+): string {
+  try {
+    return decodeCapturedBody(body, contentEncoding)
+      .toString("utf-8")
+      .substring(0, MAX_BODY_SIZE);
+  } catch {
+    return body.toString("utf-8").substring(0, MAX_BODY_SIZE);
+  }
+}
 
 /**
  * MitmProxyServer — An embedded HTTP/HTTPS man-in-the-middle proxy.
@@ -615,12 +657,12 @@ export class MitmProxyServer extends EventEmitter {
 
       const requestBody =
         reqBody.length > 0 && !isBinary
-          ? reqBody.toString("utf-8").substring(0, MAX_BODY_SIZE)
+          ? bodyToUtf8(reqBody, clientReq.headers["content-encoding"])
           : null;
 
       const responseBody =
         resBody.length > 0 && !isBinary
-          ? resBody.toString("utf-8").substring(0, MAX_BODY_SIZE)
+          ? bodyToUtf8(resBody, proxyRes.headers["content-encoding"])
           : null;
 
       this.emit("response-captured", {

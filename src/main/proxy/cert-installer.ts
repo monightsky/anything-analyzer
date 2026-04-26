@@ -1,6 +1,6 @@
 import { exec } from "child_process";
+import { existsSync, readFileSync } from "fs";
 import { platform } from "os";
-import { basename } from "path";
 
 /**
  * CertInstaller — Cross-platform CA certificate installation/removal
@@ -8,7 +8,7 @@ import { basename } from "path";
  *
  * Windows: certutil  (UAC prompt via runas)
  * macOS:   security  (password prompt via osascript)
- * Linux:   update-ca-certificates (pkexec/sudo prompt)
+ * Linux:   distro-specific system trust stores (pkexec/sudo prompt)
  */
 
 interface CertResult {
@@ -40,6 +40,28 @@ function sudoExec(cmd: string, name: string): Promise<string> {
   });
 }
 
+async function commandExists(command: string): Promise<boolean> {
+  try {
+    await execPromise(`command -v ${command}`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isArchLikeLinux(): boolean {
+  if (existsSync("/etc/arch-release")) return true;
+
+  try {
+    const osRelease = readFileSync("/etc/os-release", "utf-8").toLowerCase();
+    return /(^|\n)id(_like)?=.*\b(arch|manjaro|endeavouros|garuda)\b/.test(
+      osRelease,
+    );
+  } catch {
+    return false;
+  }
+}
+
 export class CertInstaller {
   /**
    * Install CA certificate to the system trust store (requires elevation).
@@ -59,12 +81,7 @@ export class CertInstaller {
           "Anything Analyzer",
         );
       } else {
-        // Linux — copy to ca-certificates dir then update
-        const dest = "/usr/local/share/ca-certificates/anything-analyzer.crt";
-        await sudoExec(
-          `cp "${certPath}" "${dest}" && update-ca-certificates`,
-          "Anything Analyzer",
-        );
+        await this.installLinux(certPath);
       }
 
       return { success: true };
@@ -91,11 +108,7 @@ export class CertInstaller {
           "Anything Analyzer",
         );
       } else {
-        const dest = "/usr/local/share/ca-certificates/anything-analyzer.crt";
-        await sudoExec(
-          `rm -f "${dest}" && update-ca-certificates`,
-          "Anything Analyzer",
-        );
+        await this.uninstallLinux(certPath);
       }
 
       return { success: true };
@@ -122,13 +135,108 @@ export class CertInstaller {
         );
         return out.includes("Anything Analyzer CA");
       } else {
-        const { existsSync } = await import("fs");
-        return existsSync(
-          "/usr/local/share/ca-certificates/anything-analyzer.crt",
-        );
+        return this.isLinuxInstalled();
       }
     } catch {
       return false;
     }
+  }
+
+  private static async installLinux(certPath: string): Promise<void> {
+    if (isArchLikeLinux()) {
+      const dest =
+        "/etc/ca-certificates/trust-source/anchors/anything-analyzer.crt";
+      const refreshCmd = await this.getLinuxTrustRefreshCommand();
+      await sudoExec(
+        `mkdir -p /etc/ca-certificates/trust-source/anchors && cp "${certPath}" "${dest}" && ${refreshCmd}`,
+        "Anything Analyzer",
+      );
+      return;
+    }
+
+    if (await commandExists("update-ca-certificates")) {
+      const dest = "/usr/local/share/ca-certificates/anything-analyzer.crt";
+      await sudoExec(
+        `cp "${certPath}" "${dest}" && update-ca-certificates`,
+        "Anything Analyzer",
+      );
+      return;
+    }
+
+    if (await commandExists("update-ca-trust")) {
+      const dest = "/etc/pki/ca-trust/source/anchors/anything-analyzer.crt";
+      await sudoExec(
+        `mkdir -p /etc/pki/ca-trust/source/anchors && cp "${certPath}" "${dest}" && update-ca-trust extract`,
+        "Anything Analyzer",
+      );
+      return;
+    }
+
+    if (await commandExists("trust")) {
+      await sudoExec(
+        `trust anchor --store "${certPath}" && trust extract-compat`,
+        "Anything Analyzer",
+      );
+      return;
+    }
+
+    throw new Error("No supported Linux CA trust tool found");
+  }
+
+  private static async uninstallLinux(certPath: string): Promise<void> {
+    if (isArchLikeLinux()) {
+      const refreshCmd = await this.getLinuxTrustRefreshCommand();
+      await sudoExec(
+        `rm -f /etc/ca-certificates/trust-source/anchors/anything-analyzer.crt && ${refreshCmd}`,
+        "Anything Analyzer",
+      );
+      return;
+    }
+
+    if (await commandExists("update-ca-certificates")) {
+      await sudoExec(
+        `rm -f /usr/local/share/ca-certificates/anything-analyzer.crt && update-ca-certificates`,
+        "Anything Analyzer",
+      );
+      return;
+    }
+
+    if (await commandExists("update-ca-trust")) {
+      await sudoExec(
+        `rm -f /etc/pki/ca-trust/source/anchors/anything-analyzer.crt && update-ca-trust extract`,
+        "Anything Analyzer",
+      );
+      return;
+    }
+
+    if (await commandExists("trust")) {
+      await sudoExec(
+        `trust anchor --remove "${certPath}" && trust extract-compat`,
+        "Anything Analyzer",
+      );
+      return;
+    }
+
+    throw new Error("No supported Linux CA trust tool found");
+  }
+
+  private static async getLinuxTrustRefreshCommand(): Promise<string> {
+    if (await commandExists("update-ca-trust")) {
+      return "update-ca-trust extract";
+    }
+    if (await commandExists("trust")) {
+      return "trust extract-compat";
+    }
+    throw new Error("No supported Linux CA trust refresh tool found");
+  }
+
+  private static isLinuxInstalled(): boolean {
+    return (
+      existsSync(
+        "/etc/ca-certificates/trust-source/anchors/anything-analyzer.crt",
+      ) ||
+      existsSync("/usr/local/share/ca-certificates/anything-analyzer.crt") ||
+      existsSync("/etc/pki/ca-trust/source/anchors/anything-analyzer.crt")
+    );
   }
 }

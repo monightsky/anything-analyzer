@@ -256,6 +256,7 @@ function registerTools(server: McpServer, deps: MCPServerDeps): void {
     "list_sessions",
     {
       description: "List all analysis sessions",
+      inputSchema: z.object({}),
     },
     async () => {
       const sessions = sessionManager.listSessions();
@@ -366,6 +367,7 @@ function registerTools(server: McpServer, deps: MCPServerDeps): void {
     "browser_back",
     {
       description: "Go back in the active browser tab",
+      inputSchema: z.object({}),
     },
     async () => {
       windowManager.goBack();
@@ -377,6 +379,7 @@ function registerTools(server: McpServer, deps: MCPServerDeps): void {
     "browser_forward",
     {
       description: "Go forward in the active browser tab",
+      inputSchema: z.object({}),
     },
     async () => {
       windowManager.goForward();
@@ -388,6 +391,7 @@ function registerTools(server: McpServer, deps: MCPServerDeps): void {
     "browser_reload",
     {
       description: "Reload the active browser tab",
+      inputSchema: z.object({}),
     },
     async () => {
       windowManager.reload();
@@ -429,6 +433,7 @@ function registerTools(server: McpServer, deps: MCPServerDeps): void {
     "list_tabs",
     {
       description: "List all browser tabs with their URLs and titles",
+      inputSchema: z.object({}),
     },
     async () => {
       const tabManager = windowManager.getTabManager();
@@ -447,6 +452,7 @@ function registerTools(server: McpServer, deps: MCPServerDeps): void {
     {
       description:
         "Clear all browser data (cookies, localStorage, sessionStorage, cache). Current login state will be lost.",
+      inputSchema: z.object({}),
     },
     async () => {
       await session.defaultSession.clearStorageData();
@@ -461,6 +467,7 @@ function registerTools(server: McpServer, deps: MCPServerDeps): void {
     {
       description:
         "Capture a screenshot of the current active browser tab. Returns a PNG image.",
+      inputSchema: z.object({}),
     },
     async () => {
       const webContents = windowManager.getTabManager()?.getActiveWebContents();
@@ -483,7 +490,7 @@ function registerTools(server: McpServer, deps: MCPServerDeps): void {
         "See https://chromedevtools.github.io/devtools-protocol/ for available methods.",
       inputSchema: z.object({
         method: z.string().describe("CDP method name, e.g. 'Page.captureScreenshot', 'Runtime.evaluate', 'DOM.getDocument'"),
-        params: z.record(z.unknown()).optional().describe("CDP method parameters as a JSON object"),
+        params: z.record(z.string(), z.unknown()).optional().describe("CDP method parameters as a JSON object"),
       }),
     },
     async ({ method, params }) => {

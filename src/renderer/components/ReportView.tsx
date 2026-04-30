@@ -129,12 +129,22 @@ const ReportView: React.FC<ReportViewProps> = ({
   const [showAiLog, setShowAiLog] = useState(false)
   const reportBodyRef = useRef<HTMLDivElement>(null)
 
-  // Auto-scroll report body when streaming
+  // Auto-scroll report body when streaming or new chat messages arrive
   useEffect(() => {
-    if (streamingContent && reportBodyRef.current) {
+    if ((streamingContent || isChatting) && reportBodyRef.current) {
       reportBodyRef.current.scrollTop = reportBodyRef.current.scrollHeight
     }
-  }, [streamingContent])
+  }, [streamingContent, isChatting])
+
+  useEffect(() => {
+    if (chatHistory.length > 2 && reportBodyRef.current) {
+      requestAnimationFrame(() => {
+        if (reportBodyRef.current) {
+          reportBodyRef.current.scrollTop = reportBodyRef.current.scrollHeight
+        }
+      })
+    }
+  }, [chatHistory.length])
 
   const handleSend = () => {
     const trimmed = chatInput.trim()

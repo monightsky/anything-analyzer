@@ -2,6 +2,7 @@ import { EventEmitter } from "events";
 import * as http from "http";
 import * as https from "https";
 import * as net from "net";
+import { networkInterfaces } from "os";
 import * as tls from "tls";
 import * as url from "url";
 import {
@@ -303,7 +304,8 @@ export class MitmProxyServer extends EventEmitter {
     const fullUrl = targetUrl.startsWith("http") ? targetUrl : `ws://${hostname}:${port}${parsed.path || "/"}`;
 
     const connectToServer = (serverSocket: net.Socket): void => {
-      const headers = { ...clientReq.headers, host: hostname };
+      const wsHostHeader = port !== 80 ? `${hostname}:${port}` : hostname;
+      const headers = { ...clientReq.headers, host: wsHostHeader };
       let rawReq = `${clientReq.method} ${parsed.path || "/"} HTTP/1.1\r\n`;
       for (const [key, val] of Object.entries(headers)) {
         if (val === undefined) continue;
@@ -384,6 +386,38 @@ export class MitmProxyServer extends EventEmitter {
     }
   }
 
+  /**
+   * Check if a request targets the proxy itself (direct browser access or
+   * proxy-configured client navigating to the proxy's own address).
+   * In both cases we serve the certificate download page.
+   */
+  private isSelfRequest(reqUrl: string, host: string): boolean {
+    // Case 1: Direct browser access (non-proxy request) — URL is a relative path
+    if (!reqUrl || (!reqUrl.startsWith("http://") && !reqUrl.startsWith("https://"))) {
+      return true;
+    }
+    // Case 2: Proxy client navigates to the proxy's own address
+    if (this.port !== null) {
+      const parsed = url.parse(reqUrl);
+      const targetPort = parseInt(parsed.port || "80", 10);
+      if (targetPort === this.port) {
+        const targetHost = (parsed.hostname || "").toLowerCase();
+        // Check common local identifiers
+        if (targetHost === "localhost" || targetHost === "127.0.0.1" || targetHost === "0.0.0.0") {
+          return true;
+        }
+        // Check against local network interfaces
+        const nets = networkInterfaces();
+        for (const name of Object.keys(nets)) {
+          for (const iface of nets[name] || []) {
+            if (iface.address === targetHost) return true;
+          }
+        }
+      }
+    }
+    return false;
+  }
+
   private handleHttpRequest(
     clientReq: http.IncomingMessage,
     clientRes: http.ServerResponse,
@@ -394,6 +428,12 @@ export class MitmProxyServer extends EventEmitter {
     const parsedTarget = url.parse(targetUrl);
     const targetHost = (parsedTarget.hostname || "").split(":")[0];
     if (isCertDownloadHost(host) || isCertDownloadHost(targetHost)) {
+      this.serveCertPage(clientReq, clientRes);
+      return;
+    }
+
+    // Direct browser access or self-referencing proxy request → serve cert page
+    if (this.isSelfRequest(targetUrl, host)) {
       this.serveCertPage(clientReq, clientRes);
       return;
     }
@@ -598,6 +638,12 @@ export class MitmProxyServer extends EventEmitter {
     clientReq: http.IncomingMessage,
     clientRes: http.ServerResponse,
   ): void {
+    // Serve cert download page over HTTPS too (LAN devices may access via HTTPS)
+    if (isCertDownloadHost(hostname)) {
+      this.serveCertPage(clientReq, clientRes);
+      return;
+    }
+
     const startTime = Date.now();
     const requestId = `proxy-${uuidv4()}`;
     const fullUrl = `https://${hostname}${port !== 443 ? ":" + port : ""}${clientReq.url || "/"}`;
@@ -656,7 +702,8 @@ export class MitmProxyServer extends EventEmitter {
         },
         () => {
           // Build the upgrade request to send to the real server
-          const headers = { ...clientReq.headers, host: hostname };
+          const wsHostHeader = port !== 443 ? `${hostname}:${port}` : hostname;
+          const headers = { ...clientReq.headers, host: wsHostHeader };
           let rawReq = `${clientReq.method} ${clientReq.url} HTTP/1.1\r\n`;
           for (const [key, val] of Object.entries(headers)) {
             if (val === undefined) continue;
@@ -780,12 +827,13 @@ export class MitmProxyServer extends EventEmitter {
     reqBody: Buffer,
     fullUrl: string,
   ): void {
+    const hostHeader = port !== 443 ? `${hostname}:${port}` : hostname;
     const options: https.RequestOptions = {
       hostname,
       port,
       path: clientReq.url,
       method: clientReq.method,
-      headers: { ...clientReq.headers, host: hostname },
+      headers: { ...clientReq.headers, host: hostHeader },
       rejectUnauthorized: false, // We are the MITM — upstream cert check is lax
     };
 
@@ -822,12 +870,13 @@ export class MitmProxyServer extends EventEmitter {
     try {
       const tunnelSocket = await this.connectToTarget(hostname, port);
 
+      const hostHeader = port !== 443 ? `${hostname}:${port}` : hostname;
       const options: https.RequestOptions = {
         hostname,
         port,
         path: clientReq.url,
         method: clientReq.method,
-        headers: { ...clientReq.headers, host: hostname },
+        headers: { ...clientReq.headers, host: hostHeader },
         rejectUnauthorized: false,
         socket: tunnelSocket, // Use the pre-established tunnel
       };
@@ -1008,9 +1057,14 @@ export class MitmProxyServer extends EventEmitter {
       return;
     }
 
-    // Serve the HTML download page
+    // Serve the HTML download page.
+    // Use the request's Host header for the download link so it works on
+    // LAN devices that access the proxy directly by IP (not via cert.anything.test).
     const ua = req.headers["user-agent"] || "";
-    const html = generateCertPage(ua);
+    const reqHost = req.headers.host || "";
+    const html = isCertDownloadHost(reqHost.split(":")[0])
+      ? generateCertPage(ua)
+      : generateCertPage(ua, reqHost);
     res.writeHead(200, {
       "Content-Type": "text/html; charset=utf-8",
       "Cache-Control": "no-cache",

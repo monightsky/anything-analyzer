@@ -1,4 +1,5 @@
 import { ipcMain, dialog, app, session, shell } from "electron";
+import { networkInterfaces } from "os";
 import type { LLMProviderConfig, MCPServerConfig, MCPServerSettings, MitmProxyConfig, ProxyConfig, PromptTemplate } from "@shared/types";
 import type { SessionManager } from "./session/session-manager";
 import type { AiAnalyzer } from "./ai/ai-analyzer";
@@ -602,6 +603,16 @@ export function registerIpcHandlers(deps: {
 
   ipcMain.handle("mitm-proxy:status", async () => {
     const config = loadMitmProxyConfig();
+    // Collect local IPv4 addresses for LAN device configuration
+    const localIPs: string[] = [];
+    const nets = networkInterfaces();
+    for (const name of Object.keys(nets)) {
+      for (const net of nets[name] || []) {
+        if (net.family === "IPv4" && !net.internal) {
+          localIPs.push(net.address);
+        }
+      }
+    }
     return {
       running: deps.mitmProxy.isRunning(),
       port: deps.mitmProxy.getPort(),
@@ -609,6 +620,7 @@ export function registerIpcHandlers(deps: {
       caInstalled: config.caInstalled,
       caCertPath: deps.caManager.isInitialized() ? deps.caManager.getCaCertPath() : null,
       systemProxyEnabled: config.systemProxy,
+      localIPs,
     };
   });
 

@@ -21,10 +21,15 @@ function detectPlatform(ua: string): "ios" | "android" | "desktop" {
 
 /**
  * Generate the HTML certificate download page.
+ * @param ua User-Agent string for platform detection
+ * @param overrideHost Optional host (ip:port or hostname:port) to use for the download link.
+ *                     When a LAN device accesses the proxy directly by IP, this ensures the
+ *                     download link points back to the same accessible address.
  */
-export function generateCertPage(ua: string): string {
+export function generateCertPage(ua: string, overrideHost?: string): string {
   const platform = detectPlatform(ua);
-  const downloadHost = platform === "ios" ? CERT_DOWNLOAD_HOST : CERT_DOWNLOAD_FALLBACK_HOST;
+  const defaultHost = platform === "ios" ? CERT_DOWNLOAD_HOST : CERT_DOWNLOAD_FALLBACK_HOST;
+  const downloadHost = overrideHost || defaultHost;
   return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>

@@ -19,6 +19,7 @@ export default function MitmProxySection() {
   const [mitmSystemProxy, setMitmSystemProxy] = useState(false)
   const [mitmLoading, setMitmLoading] = useState(false)
   const [regenConfirmOpen, setRegenConfirmOpen] = useState(false)
+  const [localIPs, setLocalIPs] = useState<string[]>([])
 
   useEffect(() => {
     window.electronAPI.getMitmProxyConfig().then(config => {
@@ -32,6 +33,7 @@ export default function MitmProxySection() {
       setMitmCaInitialized(status.caInitialized)
       if (status.caInstalled !== undefined) setMitmCaInstalled(status.caInstalled)
       if (status.systemProxyEnabled !== undefined) setMitmSystemProxy(status.systemProxyEnabled)
+      if (status.localIPs) setLocalIPs(status.localIPs)
     })
   }, [])
 
@@ -212,16 +214,29 @@ export default function MitmProxySection() {
               <span style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' }}>
                 在外部浏览器/设备中配置 HTTP 代理为：
               </span>
-              <div style={{ marginTop: 4 }}>
-                <code style={{
-                  background: 'var(--color-surface)',
-                  padding: '2px 6px',
-                  borderRadius: 4,
-                  fontSize: 'var(--font-size-sm)',
-                  fontFamily: 'var(--font-mono)',
-                }}>
-                  http://&lt;本机IP&gt;:{mitmPort}
-                </code>
+              <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {localIPs.length > 0 ? localIPs.map(ip => (
+                  <code key={ip} style={{
+                    background: 'var(--color-surface)',
+                    padding: '2px 6px',
+                    borderRadius: 4,
+                    fontSize: 'var(--font-size-sm)',
+                    fontFamily: 'var(--font-mono)',
+                    userSelect: 'all',
+                  }}>
+                    {ip}:{mitmPort}
+                  </code>
+                )) : (
+                  <code style={{
+                    background: 'var(--color-surface)',
+                    padding: '2px 6px',
+                    borderRadius: 4,
+                    fontSize: 'var(--font-size-sm)',
+                    fontFamily: 'var(--font-mono)',
+                  }}>
+                    http://&lt;本机IP&gt;:{mitmPort}
+                  </code>
+                )}
               </div>
             </div>
           )}
